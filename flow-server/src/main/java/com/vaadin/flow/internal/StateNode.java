@@ -18,6 +18,7 @@ package com.vaadin.flow.internal;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -26,12 +27,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import com.vaadin.flow.component.UI;
+import com.vaadin.flow.internal.StateTree.BeforeClientResponseEntry;
+import com.vaadin.flow.internal.StateTree.ExecutionRegistration;
 import com.vaadin.flow.internal.change.NodeAttachChange;
 import com.vaadin.flow.internal.change.NodeChange;
 import com.vaadin.flow.internal.change.NodeDetachChange;
@@ -49,9 +53,14 @@ import com.vaadin.flow.shared.Registration;
  * @author Vaadin Ltd
  */
 public class StateNode implements Serializable {
+    /**
+     * Cache of immutable node feature type set instances.
+     */
+    private static final Map<Set<Class<? extends NodeFeature>>, Set<Class<? extends NodeFeature>>> nodeFeatureSetCache = new ConcurrentHashMap<>();
+
     private final Map<Class<? extends NodeFeature>, NodeFeature> features = new HashMap<>();
 
-    private final Set<Class<? extends NodeFeature>> reportedFeatures = new HashSet<>();
+    private final Set<Class<? extends NodeFeature>> reportedFeatures;
 
     private Map<Class<? extends NodeFeature>, Serializable> changes;
 
@@ -71,6 +80,8 @@ public class StateNode implements Serializable {
     private boolean isInactiveSelf;
 
     private boolean isInitialChanges = true;
+
+    private ArrayList<StateTree.BeforeClientResponseEntry> beforeClientResponseEntries;
 
     /**
      * Creates a state node with the given feature types.
@@ -109,9 +120,26 @@ public class StateNode implements Serializable {
     @SafeVarargs
     public StateNode(List<Class<? extends NodeFeature>> reportableFeatureTypes,
             Class<? extends NodeFeature>... nonReportableFeatureTypes) {
-        reportedFeatures.addAll(reportableFeatureTypes);
+        reportedFeatures = getCachedFeatureSet(reportableFeatureTypes);
         Stream.concat(reportableFeatureTypes.stream(),
                 Stream.of(nonReportableFeatureTypes)).forEach(this::addFeature);
+    }
+
+    private static Set<Class<? extends NodeFeature>> getCachedFeatureSet(
+            Collection<Class<? extends NodeFeature>> reportableFeatureTypes) {
+        Set<Class<? extends NodeFeature>> keyAndValue = Collections
+                .unmodifiableSet(new HashSet<>(reportableFeatureTypes));
+
+        Set<Class<? extends NodeFeature>> currentValue = nodeFeatureSetCache
+                .putIfAbsent(keyAndValue, keyAndValue);
+
+        if (currentValue == null) {
+            // If we put the value there
+            return keyAndValue;
+        } else {
+            // If there was already a value there
+            return currentValue;
+        }
     }
 
     /**
@@ -697,4 +725,60 @@ public class StateNode implements Serializable {
                 .filter(clazz -> !node.reportedFeatures.contains(clazz))
                 .toArray(Class[]::new);
     }
+
+    /**
+     * Checks whether there are pending executions for this node.
+     *
+     * @see StateTree#beforeClientResponse(StateNode, Runnable)
+     *
+     * @return <code>true</code> if there are pending executions, otherwise
+     *         <code>false</code>
+     */
+    public boolean hasBeforeClientResponseEntries() {
+        return beforeClientResponseEntries != null;
+    }
+
+    /**
+     * Gets the current list of pending execution entries for this node and
+     * clears the current list.
+     *
+     * @see StateTree#beforeClientResponse(StateNode, Runnable)
+     *
+     * @return the current list of entries, or and empty list if there are no
+     *         entries
+     */
+    public List<StateTree.BeforeClientResponseEntry> dumpBeforeClientResponseEntries() {
+        ArrayList<BeforeClientResponseEntry> entries = beforeClientResponseEntries;
+
+        beforeClientResponseEntries = null;
+
+        return !entries.isEmpty() ? entries : Collections.emptyList();
+    }
+
+    /**
+     * Adds an entry to be executed before the next client response for this
+     * node. Entries should always be created through
+     * {@link StateTree#beforeClientResponse(StateNode, Runnable)} to ensure
+     * proper ordering.
+     *
+     * @param entry
+     *            the entry to add, not <code>null</code>
+     * @return an execution registration that can be used to cancel the
+     *         execution
+     */
+    public ExecutionRegistration addBeforeClientResponseEntry(
+            BeforeClientResponseEntry entry) {
+        assert entry != null;
+
+        if (beforeClientResponseEntries == null) {
+            beforeClientResponseEntries = new ArrayList<>();
+        }
+
+        // Effectively final local variable for the lambda
+        List<BeforeClientResponseEntry> localEntries = beforeClientResponseEntries;
+        localEntries.add(entry);
+
+        return () -> localEntries.remove(entry);
+    }
+
 }

@@ -16,9 +16,9 @@
 package com.vaadin.flow.server.startup;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -76,9 +76,7 @@ public abstract class AbstractAnnotationValidator {
             Collection<Class<?>> classSet) {
         List<String> offendingAnnotations = new ArrayList<>();
 
-        Iterator<Class<?>> iterator = classSet.iterator();
-        while (iterator.hasNext()) {
-            Class<?> clazz = iterator.next();
+        for (Class<?> clazz : classSet) {
             Route route = clazz.getAnnotation(Route.class);
             if (route != null) {
                 if (!UI.class.equals(route.layout())) {
@@ -92,8 +90,10 @@ public abstract class AbstractAnnotationValidator {
                             clazz.getName(), getClassAnnotations(clazz)));
                 }
             } else if (!RouterLayout.class.isAssignableFrom(clazz)) {
-                offendingAnnotations.add(String.format(NON_ROUTER_LAYOUT,
-                        clazz.getName(), getClassAnnotations(clazz)));
+                if (!Modifier.isAbstract(clazz.getModifiers())) {
+                    offendingAnnotations.add(String.format(NON_ROUTER_LAYOUT,
+                            clazz.getName(), getClassAnnotations(clazz)));
+                }
             } else if (RouterLayout.class.isAssignableFrom(clazz)
                     && clazz.getAnnotation(ParentLayout.class) != null) {
                 offendingAnnotations.add(String.format(MIDDLE_ROUTER_LAYOUT,

@@ -15,29 +15,20 @@
  */
 package com.vaadin.flow.server.webjar;
 
+import java.io.IOException;
+import java.io.Serializable;
+import java.net.URL;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.Serializable;
-import java.io.UncheckedIOException;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.stream.Collectors;
-
-import org.slf4j.LoggerFactory;
-import org.webjars.WebJarAssetLocator;
 
 import com.vaadin.flow.function.DeploymentConfiguration;
 import com.vaadin.flow.internal.ResponseWriter;
 import com.vaadin.flow.server.Constants;
 import com.vaadin.flow.shared.ApplicationConstants;
-
-import elemental.json.Json;
 
 /**
  * Handles requests that may require webJars contents. In this case, writes the
@@ -50,11 +41,10 @@ import elemental.json.Json;
  * @author Vaadin Ltd.
  */
 public class WebJarServer implements Serializable {
-    private final transient WebJarAssetLocator locator = new WebJarAssetLocator();
-    private final transient Map<String, WebJarBowerDependency> bowerModuleToDependencyName = new HashMap<>();
     private final ResponseWriter responseWriter = new ResponseWriter();
 
     private final String prefix;
+    private final Pattern urlPattern;
 
     /**
      * Creates a webJar server that is able to search webJars for files and
@@ -85,50 +75,8 @@ public class WebJarServer implements Serializable {
                 + frontendPrefix.substring(
                         ApplicationConstants.CONTEXT_PROTOCOL_PREFIX.length())
                 + "bower_components/";
+        urlPattern = Pattern.compile("^([/.]?[/..]*)" + prefix);
 
-        locator.getWebJars().forEach((webJarName, version) -> {
-            String bowerModuleName = getBowerModuleName(webJarName);
-            if (bowerModuleName != null) {
-                WebJarBowerDependency newDependency = new WebJarBowerDependency(
-                        bowerModuleName, webJarName, version);
-                bowerModuleToDependencyName.merge(bowerModuleName,
-                        newDependency, this::mergeDependencies);
-            }
-        });
-    }
-
-    private WebJarBowerDependency mergeDependencies(
-            WebJarBowerDependency oldDependency,
-            WebJarBowerDependency newDependency) {
-        int comparison = oldDependency.compareVersions(newDependency);
-        if (comparison == 0) {
-            LoggerFactory.getLogger(getClass().getName()).trace(
-                    "Have found multiple webJars with name and version: '{}'",
-                    oldDependency);
-            return oldDependency;
-        } else if (comparison > 0) {
-            return oldDependency;
-        } else {
-            return newDependency;
-        }
-    }
-
-    private String getBowerModuleName(String webJarName) {
-        String bowerJsonPath = locator.getFullPathExact(webJarName,
-                "bower.json");
-        if (bowerJsonPath == null) {
-            return null;
-        }
-
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                getClass().getClassLoader().getResourceAsStream(bowerJsonPath),
-                StandardCharsets.UTF_8))) {
-            return Json.parse(reader.lines().collect(Collectors.joining()))
-                    .getString("name");
-        } catch (IOException e) {
-            throw new UncheckedIOException(
-                    "Failed to read resource located at: " + bowerJsonPath, e);
-        }
     }
 
     /**
@@ -176,35 +124,25 @@ public class WebJarServer implements Serializable {
      */
     public boolean hasWebJarResource(String filePathInContext,
             ServletContext servletContext) throws IOException {
-        String webJarPath = getWebJarPath(filePathInContext);
+        String webJarPath = null;
+
+        Matcher matcher = urlPattern.matcher(filePathInContext);
+        // If we don't find anything then we don't have the prefix at all.
+        if (matcher.find()) {
+            webJarPath = getWebJarPath(
+                    filePathInContext.substring(matcher.group(1).length()));
+        }
         if (webJarPath == null) {
             return false;
         }
 
-        URL resourceUrl = servletContext.getResource(webJarPath);
-
-        return resourceUrl != null;
+        return servletContext.getResource(webJarPath) != null;
     }
 
     private String getWebJarPath(String path) {
-        if (bowerModuleToDependencyName.isEmpty() || !path.startsWith(prefix)) {
+        if (!path.startsWith(prefix)) {
             return null;
         }
-        String pathWithoutPrefix = path.substring(prefix.length());
-
-        int separatorIndex = pathWithoutPrefix.indexOf('/');
-        if (separatorIndex < 0) {
-            return null;
-        }
-
-        String bowerModuleName = pathWithoutPrefix.substring(0, separatorIndex);
-        WebJarBowerDependency dependency = bowerModuleToDependencyName
-                .get(bowerModuleName);
-        if (dependency == null) {
-            return null;
-        }
-
-        return String.join("", "/webjars/", dependency.toWebPath(),
-                pathWithoutPrefix.substring(separatorIndex));
+        return path.replace(prefix, "/webjars/");
     }
 }

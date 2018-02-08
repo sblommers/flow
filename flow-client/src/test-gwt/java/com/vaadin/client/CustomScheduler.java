@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 Vaadin Ltd.
+ * Copyright 2000-2017 Vaadin Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -13,33 +13,15 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
-package com.vaadin.flow.tests.components.model;
+package com.vaadin.client;
 
-import java.io.Serializable;
+import com.google.gwt.core.client.Scheduler.ScheduledCommand;
+import com.google.gwt.core.client.impl.SchedulerImpl;
 
-public class Person implements Serializable {
-    private String name;
-    private final int born;
-
-    public Person(String name, int born) {
-        this.name = name;
-        this.born = born;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public int getBorn() {
-        return born;
-    }
+public class CustomScheduler extends SchedulerImpl {
 
     @Override
-    public String toString() {
-        return name + "(" + born + ")";
+    public void scheduleDeferred(ScheduledCommand cmd) {
+        cmd.execute();
     }
 }

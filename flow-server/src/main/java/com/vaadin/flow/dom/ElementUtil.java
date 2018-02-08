@@ -33,7 +33,6 @@ import com.vaadin.flow.component.Composite;
  */
 public class ElementUtil {
 
-    public static final String A_STYLE_VALUE_CANNOT_BE_NULL = "A style value cannot be null";
     /**
      * Pattern for matching valid tag names, according to
      * https://www.w3.org/TR/html-markup/syntax.html#tag-name "HTML elements all
@@ -157,9 +156,6 @@ public class ElementUtil {
     }
 
     private static String getInvalidStylePropertyValueError(String value) {
-        if (value == null) {
-            return A_STYLE_VALUE_CANNOT_BE_NULL;
-        }
         if (value.endsWith(";")) {
             return "A style value cannot end in semicolon";
         }
@@ -186,7 +182,7 @@ public class ElementUtil {
             throw new IllegalArgumentException("Component must not be null");
         }
 
-        Optional<Component> currentComponent = getComponent(element);
+        Optional<Component> currentComponent = element.getComponent();
         if (currentComponent.isPresent()) {
             // Composite can replace its content
             boolean isCompositeReplacingItsContent = component instanceof Composite
@@ -199,21 +195,6 @@ public class ElementUtil {
             }
         }
         element.getStateProvider().setComponent(element.getNode(), component);
-    }
-
-    /**
-     * Gets the component the element has been mapped to, if any.
-     * <p>
-     * If the element is mapped to a {@link Composite} or a {@link Composite}
-     * chain, this will always return the outermost {@link Composite}.
-     *
-     * @param element
-     *            the element to retrieve the component for
-     * @return an optional component, or an empty optional if no component has
-     *         been mapped to this element
-     */
-    public static Optional<Component> getComponent(Element element) {
-        return element.getStateProvider().getComponent(element.getNode());
     }
 
     /**
